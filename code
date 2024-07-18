@@ -1,1 +1,237 @@
-
+clc
+clear
+close all
+% Simulation parameters
+T = 50; % Final time
+dt = 0.001; % Time step
+time_vector = 0:dt:T;
+% Control gains
+p_vi = 10;
+p_wi = 0.06;
+dprime_vi = 3.1;
+r_vi = 4.5;
+dprime_wi = 0.052;
+r_wi = 0.44;
+k_alphai = 1.1;
+d_vi = 2*dprime_vi + r_vi;
+k_vi = dprime_vi + r_vi;
+d_wi = 2*dprime_wi + r_wi;
+k_wi = dprime_wi + r_wi;
+% Initial conditions
+theta_0 = [pi/2 0 -pi/8 pi/8 -pi/8 -pi/8]; % Initial orientation
+x_i_0 = 8 * rand(1, 6); % Initial position in x direction
+y_i_0 = 8 * rand(1, 6); % Initial position in y direction
+z_i_0 = [x_i_0; y_i_0]; % Initial z
+% Initialize arrays
+w = zeros(1,6);
+v = zeros(1,6);
+U = zeros(1,6);
+u_vi = zeros(1,6);
+u_wi = zeros(1,6);
+v_dot = zeros(1,6);
+w_dot = zeros(1,6);
+% Desired States
+x_d_i = [2 1 -1 -2 -1 1]';
+y_d_i = [0 2 2 0 -2 -2]';
+z_d_i = [x_d_i, y_d_i]';
+% Model parameters
+% All six agents are the same robot
+m = 19; % Mass of robots (kg)
+I = 3; % Moment of inertia (kg*m^2)
+R = 0.3; %
+r = 0.05; %
+% Disturbance
+delta_v_i = [0.12 0.11 0.1 0.14 0.13 0.09]'; % Velocity disturbance
+delta_w_i = [0.07 0.06 0.065 0.075 0.05 0.055]'; % Angular velocity disturbance
+zigma_wi = ((2*R)/(I*r))*(delta_v_i - delta_w_i);
+zigma_vi = ((1)/(m*r))*(delta_v_i + delta_w_i);
+% Laplacian matrix
+N = 6; % Number of agents
+g = graph();% Add nodes
+g = addnode(g, N);
+% Define edges
+edges = [1 2; 2 3; 3 4; 4 5; 5 6; 6 1; 4 1; 3 6];
+% Add edges to the graph
+g = addedge(g, edges(:, 1), edges(:, 2));
+% Calculate Laplacian matrix
+L1 = laplacian(g);
+% Convert Laplacian matrix to full matrix
+L = full(L1);
+% Plot the topology
+plot(g);
+title('Our graph');
+% Initialize errors to be 0
+e_z = 0;
+e_z_l = 0;
+e_theta = 0;
+e_theta_l = 0;
+% Initialize arrays to store positions for plotting
+x_history = zeros(6, length(time_vector));
+y_history = zeros(6, length(time_vector));
+z_x_bar_history = zeros(6, length(time_vector));
+z_y_bar_history = zeros(6, length(time_vector));
+theta_history = zeros(6, length(time_vector));
+zigma_hat_vi = zeros(6, length(time_vector));
+zigma_hat_wi = zeros(6, length(time_vector));
+zigma_tilda_vi = zeros(6, length(time_vector));
+zigma_tilda_wi = zeros(6, length(time_vector));
+zigma_hat_dot_vi = zeros(6, length(time_vector));
+zigma_hat_dot_wi = zeros(6, length(time_vector));
+zigma_tilda_vi_history = zeros(6, length(time_vector));
+zigma_tilda_wi_history = zeros(6, length(time_vector));
+taw = zeros(2, N, length(time_vector));
+taw1_history = zeros(6, length(time_vector));
+taw2_history = zeros(6, length(time_vector));
+for idx = 1:length(time_vector)
+t = time_vector(idx);
+z_bar = z_i_0 - z_d_i;
+f = (5/2) + 3*pi*sin(2*t) + ((2/3)*sin(3*t));
+for i = 1:N
+for j = 1:N % error loop
+% z error
+e_z_l = L(i,j)*(z_bar(:,i) - z_bar(:,j));
+e_z = e_z_l + e_z;
+% theta error
+theta_i_mod = mod(theta_0(:,i), 2*pi);
+theta_j_mod = mod(theta_0(:,j), 2*pi);
+% calculate theta error with constrained values
+e_theta_l = L(i,j)*(theta_i_mod - theta_j_mod);
+e_theta = e_theta_l + e_theta;
+endphi = [cos(theta_0(1,i)); sin(theta_0(1,i))];
+alpha = k_alphai*f*phi'*e_z;
+zigma_hat_dot_vi(1,i) = -p_vi*phi'*e_z + r_vi*v(1, i);
+zigma_hat_dot_wi(1,i) = p_wi*e_theta + r_wi*w(1, i);
+zigma_hat_vi(1,i) = zigma_hat_dot_vi(1,i)*dt + zigma_hat_vi(1,i);
+zigma_hat_wi(1,i) = zigma_hat_dot_wi(1,i)*dt + zigma_hat_wi(1,i);
+zigma_tilda_vi(1,i) = zigma_hat_vi(1,i) - (1/k_vi)*zigma_vi(i,1);
+v_dot(1,i) = p_vi*phi'*e_z - d_vi*v(1, i) - k_vi*zigma_tilda_vi(1,i);
+zigma_tilda_wi(1,i) = zigma_hat_wi(1,i) - (1/k_wi)*zigma_wi(i,1);
+w_dot(1,i) = -p_wi*e_theta - d_wi*w(1, i) - k_wi*zigma_tilda_wi(1,i) + alpha;
+% Update velocities
+v(1,i) = v(1,i) + v_dot(1,i)*dt;
+w(1,i) = w(1,i) + w_dot(1,i)*dt;
+% Taw i
+taw(:, :, idx) = r/2 .* [m*I/(2*R); m*-I/(2*R)] .* [v_dot; w_dot];
+% Update positions and orientations
+z_i_0(1,i) = z_i_0(1,i) + v(1,i)*cos(theta_0(1,i))*dt;
+z_i_0(2,i) = z_i_0(2,i) + v(1,i)*sin(theta_0(1,i))*dt;
+theta_0(1,i) = theta_0(1,i) + w(1,i)*dt;
+% Store variables for plotting
+x_history(i, idx) = z_i_0(1,i);
+y_history(i, idx) = z_i_0(2,i);
+theta_history(i, idx) = theta_0(1,i);
+z_x_bar_history(i, idx) = z_bar(1,i);
+z_y_bar_history(i, idx) = z_bar(2,i);
+zigma_tilda_vi_history(i, idx) = zigma_tilda_vi(1,i);
+zigma_tilda_wi_history(i, idx) = zigma_tilda_wi(1,i);
+taw1_history(i, idx) = taw(1,i);
+taw2_history(i, idx) = taw(2,i);
+% Avoid error accumulation
+e_z=0;
+e_theta=0;
+e_z_l=0;
+e_theta_l=0;
+end
+end
+% Define center of formation
+z_c(1)=(z_i_0(1,1)+z_i_0(1,2)+z_i_0(1,3)+z_i_0(1,4)+z_i_0(1,5)+z_i_0(1,6))/6;
+z_c(2)=(z_i_0(2,1)+z_i_0(2,2)+z_i_0(2,3)+z_i_0(2,4)+z_i_0(2,5)+z_i_0(2,6))/6;
+% Plotting the results
+figure;
+colors = lines(N); % Generate N distinct colors
+% markers = {'o', 's', 'd', '^', '>', '<'}; % Define N different markers
+for i = 1:N
+plot(x_history(i,:), y_history(i,:), 'Color', colors(i,:));
+hold on;
+end
+% Plot the final desired positionsplot(z_c(1), z_c(2), 'rx', 'LineWidth', 2, 'MarkerSize', 10);
+text(z_c(1), z_c(2), [' z_{cx} = ', num2str(z_c(1)), ', z_{cy} = ', num2str(z_c(2))]);
+% Connect points in z_i_0 with lines
+for i = 1:size(z_i_0, 2)
+if i < size(z_i_0, 2)
+plot(z_i_0(1,[i,i+1]), z_i_0(2,[i,i+1]), 'k--', 'LineWidth', 1.5);
+else
+plot(z_i_0(1,[i,1]), z_i_0(2,[i,1]), 'k--', 'LineWidth', 1.5);
+end
+end
+title('Trajectories of the mobile robots in the x-y plane');
+xlabel('x [m]');
+ylabel('y [m]');
+legend('Agent 1', 'Agent 2', 'Agent 3', 'Agent 4', 'Agent 5', 'Agent 6', 'Desired Position',
+'Hexagon');
+% Optionally, use xlim and ylim to set the limits of the plot
+xlim([min(x_history(:)) - 1, max(x_history(:)) + 1]);
+ylim([min(y_history(:)) - 1, max(y_history(:)) + 1]);
+grid on;
+% Plotting the x and y position errors over time
+figure;
+subplot(2,1,1);
+for i = 1:N
+plot(time_vector, z_x_bar_history(i,:), 'Color', colors(i,:));
+hold on;
+end
+title('Consensus of cartesian positions');
+xlabel('Time [s]');
+ylabel('x position error [m]');
+legend(arrayfun(@(x) ['Agent ' num2str(x)], 1:N, 'UniformOutput', false));
+grid on;
+subplot(2,1,2);
+for i = 1:N
+plot(time_vector, z_y_bar_history(i,:), 'Color', colors(i,:));
+hold on;
+end
+xlabel('Time [s]');
+ylabel('y position error [m]');
+legend(arrayfun(@(x) ['Agent ' num2str(x)], 1:N, 'UniformOutput', false));
+grid on;
+% Plotting the zigma_tilda_vi and zigma_tilda_wi over time
+figure;
+subplot(2,1,1);
+for i = 1:N
+plot(time_vector, zigma_tilda_vi_history(i,:), 'Color', colors(i,:));
+hold on;
+end
+title('$\tilde{\sigma}_{vi}$ over time','FontWeight', 'bold','FontSize', 16,
+Interpreter="latex");
+xlabel('Time [s]');ylabel('$\tilde{\sigma}_{vi}$ [Nm]','FontWeight', 'bold','FontSize',
+16,Interpreter="latex");
+legend(arrayfun(@(x) ['Agent ' num2str(x)], 1:N, 'UniformOutput', false));
+grid on;
+subplot(2,1,2);
+for i = 1:N
+plot(time_vector, zigma_tilda_wi_history(i,:), 'Color', colors(i,:));
+hold on;
+end
+title('$\tilde{\sigma}_{wi}$ over time','FontWeight', 'bold','FontSize',
+16,Interpreter="latex");
+xlabel('Time [s]');
+ylabel('$\tilde{\sigma}_{wi}$ [Nm]','FontWeight', 'bold','FontSize', 16,
+Interpreter="latex");
+legend(arrayfun(@(x) ['Agent ' num2str(x)], 1:N, 'UniformOutput', false));
+grid on;
+% Extracting taw values for plotting
+taw1 = squeeze(taw(1, :, :)); % Extract the first row (taw1) for all agents over time
+taw2 = squeeze(taw(2, :, :)); % Extract the second row (taw2) for all agents over time
+% Plotting taw1 and taw2 over time for each agent
+figure;
+% Plot taw1
+for i = 1:N
+plot(time_vector, taw1(i,:), 'Color', colors(i,:));
+hold on;
+end
+title('$\tau_1$ over Time', Interpreter="latex");
+xlabel('Time [s]');
+ylabel('$\tau_1$', Interpreter="latex");
+legend(arrayfun(@(x) ['Agent ' num2str(x)], 1:N, 'UniformOutput', false));
+grid on;
+figure;
+% Plot taw2
+for i = 1:N
+plot(time_vector, taw2(i,:), 'Color', colors(i,:));
+hold on;
+end
+title('$\tau_2$ over Time', Interpreter="latex");
+xlabel('Time [s]');
+ylabel('$\tau_2$', Interpreter="latex");
+legend(arrayfun(@(x) ['Agent ' num2str(x)], 1:N, 'UniformOutput', false));
+grid on;
