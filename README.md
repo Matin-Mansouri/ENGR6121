@@ -16,10 +16,10 @@ In this study, we introduce a unique controller designed to universally address 
 
 1. Clone the repository:
 
-   \`\`\`bash
-   git clone https://github.com/Matin-Mansouri/ENGR6121.git
+   ```
+   git clone https://github.com/Matin-Mansouri/ENGR6121.git 
    cd ENGR6121
-   \`\`\`
+   ```
 
 2. Navigate to the \`code\` directory and open the \`formation_control.m\` file in MATLAB.
 
